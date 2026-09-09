@@ -1,0 +1,31 @@
+{
+  "name": "yunus-meridian-pro",
+  "version": "1.0.0",
+  "description": "Autonomous Meteora DLMM liquidity management agent with fullstack dashboard",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "agent": "node scripts/run-cycle.js",
+    "setup": "node scripts/setup.js",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "prisma:studio": "prisma studio"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "next": "14.2.5",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "@prisma/client": "^5.16.0",
+    "zod": "^3.23.8",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "prisma": "^5.16.0"
+  }
+}

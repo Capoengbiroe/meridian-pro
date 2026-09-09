@@ -1,0 +1,12 @@
+node_modules/
+.next/
+.env
+*.log
+.DS_Store
+tsconfig.tsbuildinfo
+
+# never commit secrets
+*.pem
+user-config.json
+lessons.json
+pool-memory.json

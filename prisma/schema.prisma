@@ -1,0 +1,171 @@
+// Prisma schema for Meridian Pro
+// All configuration is database-driven so the dashboard can control the agent.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  wallet              Wallet?
+  tradingParameters   TradingParameter?
+  screeningThreshold  ScreeningThreshold?
+  riskParameter       RiskParameter?
+  llmConfig           LLMConfig?
+  telegramSetting     TelegramSetting?
+  hiveMindSetting     HiveMindSetting?
+  positions           Position[]
+  lessons             Lesson[]
+  agentLogs           AgentLog[]
+  thresholdEvolutions ThresholdEvolution[]
+}
+
+model Wallet {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  publicKey    String
+  privateKeyEnc String   // AES-256 encrypted at rest
+  solBalance   Float    @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model TradingParameter {
+  id                  String  @id @default(cuid())
+  userId              String  @unique
+  user                User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deployAmountSol     Float   @default(0.5)
+  maxPositions        Int     @default(3)
+  minSolToOpen        Float   @default(0.07)
+  managementIntervalMin Int   @default(10)
+  screeningIntervalMin   Int   @default(30)
+  dryRun              Boolean @default(true)
+  rpcUrl              String  @default("https://pump.helius-rpc.com")
+  updatedAt           DateTime @updatedAt
+}
+
+model ScreeningThreshold {
+  id                  String  @id @default(cuid())
+  userId              String  @unique
+  user                User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  minFeeActiveTvlRatio Float  @default(0.05)
+  minTvl              Float   @default(10000)
+  maxTvl              Float   @default(150000)
+  minOrganic          Int     @default(65)
+  minHolders          Int     @default(500)
+  timeframe           String  @default("5m")
+  category            String  @default("trending")
+  updatedAt           DateTime @updatedAt
+}
+
+model RiskParameter {
+  id                  String  @id @default(cuid())
+  userId              String  @unique
+  user                User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  takeProfitFeePct    Float   @default(5)
+  stopLossPct         Float   @default(8)
+  outOfRangeWaitMinutes Int   @default(30)
+  maxDailyLossPct     Float   @default(10)
+  updatedAt           DateTime @updatedAt
+}
+
+model LLMConfig {
+  id             String  @id @default(cuid())
+  userId         String  @unique
+  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  openRouterKeyEnc String
+  managementModel String  @default("openrouter/healer-alpha")
+  screeningModel   String  @default("openrouter/hunter-alpha")
+  generalModel     String  @default("openrouter/healer-alpha")
+  updatedAt        DateTime @updatedAt
+}
+
+model TelegramSetting {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  botTokenEnc     String
+  chatId          String?
+  enabled         Boolean  @default(false)
+  updatedAt       DateTime @updatedAt
+}
+
+model HiveMindSetting {
+  id         String  @id @default(cuid())
+  userId     String  @unique
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hiveMindUrl String  @default("")
+  hiveMindApiKeyEnc String @default("")
+  enabled    Boolean  @default(false)
+  updatedAt  DateTime @updatedAt
+}
+
+model Position {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  poolAddress  String
+  poolName     String?
+  strategy     String?
+  deployAmount Float
+  entryPrice   Float?
+  currentPnl   Float    @default(0)
+  unclaimedFees Float   @default(0)
+  usdcAmount   Float    @default(0)
+  solAmount    Float    @default(0)
+  status       String   @default("OPEN") // OPEN, CLOSED, OUT_OF_RANGE
+  openedAt     DateTime @default(now())
+  closedAt     DateTime?
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId, status])
+}
+
+model Lesson {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String
+  sourcePool String?
+  weight    Float    @default(1.0)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model AgentLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  level     String   @default("info")
+  agentType String   @default("healer")
+  message   String
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model ThresholdEvolution {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  field     String
+  oldValue  Float
+  newValue  Float
+  reason    String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
