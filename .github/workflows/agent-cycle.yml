@@ -2,7 +2,7 @@ name: ECC Agent Cycle
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/5 * * * *'  # Ubah ke 5 menit agar lebih responsif
   push:
     branches:
       - main

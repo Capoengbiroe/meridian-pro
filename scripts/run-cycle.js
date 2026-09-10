@@ -1,4 +1,5 @@
 import "dotenv/config";
+console.log("DEBUG: Cycle started. DB_URL present:", !!process.env.DATABASE_URL);
 import prisma from "../lib/db.js";
 import { loadUserConfig } from "../lib/config.js";
 import { runScreeningCycle } from "../agent/hunter.js";

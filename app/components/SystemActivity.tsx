@@ -27,8 +27,8 @@ export default function SystemActivity() {
   const formatTime = (iso) => {
     if (!iso) return "-";
     try {
-      const d = new Date(iso);
-      return d.toLocaleString("id-ID", { timeZone: "Asia/Jakarta", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+          const d = new Date(iso);
+          return d.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     } catch { return iso; }
   };
 
