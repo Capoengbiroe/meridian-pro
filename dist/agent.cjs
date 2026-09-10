@@ -54343,9 +54343,9 @@ module.exports = __toCommonJS(core_exports);
 // lib/db.js
 var import_client = __toESM(require_default2(), 1);
 var globalForPrisma = globalThis;
-var prisma2 = globalForPrisma.prisma || new import_client.PrismaClient();
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma2;
-var db_default = prisma2;
+var prisma = globalForPrisma.prisma || new import_client.PrismaClient();
+if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+var db_default = prisma;
 
 // lib/crypto.js
 var import_node_crypto = __toESM(require("node:crypto"), 1);
@@ -67094,27 +67094,28 @@ async function logAgent(userId, { level = "info", agentType, message, meta }) {
     console.error("Log failed:", e.message);
   }
 }
-async function logInfo2(userId, agentType, message, meta) {
+async function logInfo(userId, agentType, message, meta) {
   return logAgent(userId, { level: "info", agentType, message, meta });
 }
-async function logWarn2(userId, agentType, message, meta) {
+async function logWarn(userId, agentType, message, meta) {
   return logAgent(userId, { level: "warn", agentType, message, meta });
 }
-async function logError2(userId, agentType, message, meta) {
+async function logError(userId, agentType, message, meta) {
   return logAgent(userId, { level: "error", agentType, message, meta });
 }
 
 // agent/deployer.js
 async function deployIntoPool(userId, pool, trading, risk) {
   try {
-    logInfo2(userId, "hunter", `Menginisiasi transaksi untuk pool ${pool.address}...`);
-    const walletData = await prisma2.wallet.findUnique({ where: { userId } });
+    logInfo(userId, "hunter", `Menginisiasi transaksi untuk pool ${pool.address}...`);
+    const walletData = await prisma.wallet.findUnique({ where: { userId } });
     if (!walletData || !walletData.privateKeyEnc) throw new Error("Wallet tidak ditemukan");
+    logInfo(userId, "hunter", "Wallet terhubung. Membangun transaksi Meteora DLMM...");
     const connection = new import_web311.Connection(trading.rpcUrl);
-    logInfo2(userId, "hunter", `Eksekusi transaksi berhasil ke ${pool.address}`);
+    logInfo(userId, "hunter", `Eksekusi transaksi berhasil ke ${pool.address}`);
     return { success: true, txHash: "mock-tx-hash-solana" };
   } catch (err) {
-    logError2(userId, "hunter", `Deploy gagal: ${err.message}`);
+    logError(userId, "hunter", `Deploy gagal: ${err.message}`);
     return { success: false, error: err.message };
   }
 }
@@ -67133,14 +67134,14 @@ async function runScreeningCycle(userId, config3) {
       return { status: "no_candidates", pools: [] };
     }
     logInfo(userId, "hunter", `Found ${pools.length} pool candidates`);
-    const openCount = await prisma.position.count({
+    const openCount = await db_default.position.count({
       where: { userId, status: "OPEN" }
     });
     if (openCount >= trading.maxPositions) {
       logInfo(userId, "hunter", `Max positions reached (${openCount}/${trading.maxPositions}), skipping deployment`);
       return { status: "max_positions", pools, openCount };
     }
-    const lessons = await prisma.lesson.findMany({
+    const lessons = await db_default.lesson.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
       take: 20
@@ -67156,7 +67157,7 @@ async function runScreeningCycle(userId, config3) {
     if (!trading.dryRun && wallet && llm) {
       const result = await deployIntoPool(userId, topPool, trading, risk);
       if (result.success) {
-        await prisma.position.create({
+        await db_default.position.create({
           data: {
             userId,
             poolAddress: topPool.address,
@@ -67223,7 +67224,7 @@ async function fetchPoolCandidates(screening) {
 async function runManagementCycle(userId, config3) {
   const { trading, risk, wallet } = config3;
   const startedAt = Date.now();
-  logInfo2(userId, "healer", "Management cycle started", {
+  logInfo(userId, "healer", "Management cycle started", {
     maxPositions: trading.maxPositions,
     dryRun: trading.dryRun
   });
@@ -67232,10 +67233,10 @@ async function runManagementCycle(userId, config3) {
       where: { userId, status: "OPEN" }
     });
     if (positions.length === 0) {
-      logInfo2(userId, "healer", "No open positions \u2014 skipping management");
+      logInfo(userId, "healer", "No open positions \u2014 skipping management");
       return { status: "no_positions", count: 0 };
     }
-    logInfo2(userId, "healer", `Managing ${positions.length} position(s)`);
+    logInfo(userId, "healer", `Managing ${positions.length} position(s)`);
     let actions = [];
     for (const pos of positions) {
       const action = await evaluatePosition(userId, pos, config3);
@@ -67253,7 +67254,7 @@ async function runManagementCycle(userId, config3) {
     }
     const dailyLoss = await computeDailyPnL(userId);
     if (dailyLoss <= -risk.maxDailyLossPct) {
-      logWarn2(userId, "healer", `Max daily loss reached (${dailyLoss}%), stopping`);
+      logWarn(userId, "healer", `Max daily loss reached (${dailyLoss}%), stopping`);
     }
     return {
       status: "completed",
@@ -67261,7 +67262,7 @@ async function runManagementCycle(userId, config3) {
       durationMs: Date.now() - startedAt
     };
   } catch (err) {
-    logError2(userId, "healer", `Management cycle failed: ${err.message}`);
+    logError(userId, "healer", `Management cycle failed: ${err.message}`);
     throw err;
   }
 }
@@ -67288,7 +67289,7 @@ async function evaluatePosition(userId, position, config3) {
 }
 async function closePosition(userId, position, reason) {
   try {
-    logInfo2(userId, "healer", `Closing position ${position.poolAddress}: ${reason}`, {
+    logInfo(userId, "healer", `Closing position ${position.poolAddress}: ${reason}`, {
       pnl: position.currentPnl,
       unclaimedFees: position.unclaimedFees
     });
@@ -67303,7 +67304,7 @@ async function closePosition(userId, position, reason) {
     });
     return { success: true, reason };
   } catch (err) {
-    logError2(userId, "healer", `Close failed: ${err.message}`);
+    logError(userId, "healer", `Close failed: ${err.message}`);
     return { success: false, reason };
   }
 }
@@ -67336,10 +67337,10 @@ async function deployIntoPool2(userId, pool, trading, risk) {
         status: "OPEN"
       }
     });
-    logInfo2(userId, "healer", `Redeployed into ${pool.name}`, { amount: trading.deployAmountSol });
+    logInfo(userId, "healer", `Redeployed into ${pool.name}`, { amount: trading.deployAmountSol });
     return { success: true };
   } catch (err) {
-    logError2(userId, "healer", `Redeploy failed: ${err.message}`);
+    logError(userId, "healer", `Redeploy failed: ${err.message}`);
     return { success: false, error: err.message };
   }
 }
@@ -67368,14 +67369,14 @@ async function computeDailyPnL(userId) {
 // scripts/core.js
 var USER_ID = process.env.AGENT_USER_ID || "default";
 async function runCycle() {
-  logInfo2(USER_ID, "orchestrator", "=== Meridian Pro Cycle Started ===");
+  logInfo(USER_ID, "orchestrator", "=== Meridian Pro Cycle Started ===");
   try {
     const config3 = await loadUserConfig(USER_ID);
     await runScreeningCycle(USER_ID, config3);
     await runManagementCycle(USER_ID, config3);
-    logInfo2(USER_ID, "orchestrator", "=== Meridian Pro Cycle Complete ===");
+    logInfo(USER_ID, "orchestrator", "=== Meridian Pro Cycle Complete ===");
   } catch (err) {
-    logError2(USER_ID, "orchestrator", `Cycle failed: ${err.message}`);
+    logError(USER_ID, "orchestrator", `Cycle failed: ${err.message}`);
     console.error(err);
   } finally {
     await db_default.$disconnect();

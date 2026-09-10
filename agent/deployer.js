@@ -3,6 +3,7 @@ import DLMM from "@meteora-ag/dlmm";
 import bs58 from "bs58";
 import { logInfo, logError } from "../lib/logger.js";
 import { prisma } from "../lib/db.js";
+import { decrypt } from "../lib/crypto.js";
 
 export async function deployIntoPool(userId, pool, trading, risk) {
   try {
@@ -10,6 +11,7 @@ export async function deployIntoPool(userId, pool, trading, risk) {
 
     const walletData = await prisma.wallet.findUnique({ where: { userId } });
     if (!walletData || !walletData.privateKeyEnc) throw new Error("Wallet tidak ditemukan");
+    logInfo(userId, "hunter", "Wallet terhubung. Membangun transaksi Meteora DLMM...");
 
     // Decrypt (harus impor decrypt)
     // Untuk efisiensi, saya akan asumsikan private key sudah ada di env atau decrypt di sini

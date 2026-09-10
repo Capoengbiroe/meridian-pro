@@ -1,4 +1,6 @@
 import { deployIntoPool } from "./deployer.js";
+import prisma from "../lib/db.js";
+import { logInfo, logWarn, logError } from "../lib/logger.js";
 
 /**
  * Hunter Alpha — Pool Screening Agent
