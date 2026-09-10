@@ -24,6 +24,18 @@ export default function SystemActivity() {
 
   const max = Math.max(1, ...stats.hourly.map((h) => h.count));
 
+  const formatTime = (iso) => {
+    if (!iso) return "-";
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString("id-ID", { timeZone: "Asia/Jakarta", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    } catch { return iso; }
+  };
+
+  const minutesSince = stats.lastActivity
+    ? Math.round((Date.now() - new Date(stats.lastActivity).getTime()) / 60000)
+    : null;
+
   return (
     <div className="bg-gray-900 rounded-xl p-6 border border-gray-800">
       <div className="flex items-center justify-between mb-4">
@@ -44,11 +56,11 @@ export default function SystemActivity() {
         {stats.hourly.map((h) => (
           <div key={h.hour} className="flex flex-col items-center flex-1">
             <div
-              className={`w-full rounded-t ${h.count > 0 ? "bg-blue-500" : "bg-gray-800"}`}
+              className={`w-full rounded-t transition-all ${h.count > 0 ? "bg-blue-500" : "bg-gray-800"}`}
               style={{ height: `${Math.max((h.count / max) * 100, 4)}%` }}
-              title={`Jam ${h.hour}: ${h.count} aktivitas`}
+              title={`${h.hour}:00 — ${h.count} event`}
             ></div>
-            <span className="text-[9px] text-gray-500 mt-1">{h.hour}:00</span>
+            <span className="text-[9px] text-gray-500 mt-1">{h.hour}</span>
           </div>
         ))}
       </div>
@@ -56,7 +68,7 @@ export default function SystemActivity() {
       <div className="flex justify-between text-xs text-gray-400">
         <span>
           {stats.lastActivity
-            ? `Aktivitas terakhir: ${new Date(stats.lastActivity).toLocaleTimeString()}`
+            ? `Terakhir: ${formatTime(stats.lastActivity)} (${minutesSince !== null ? `${minutesSince}m lalu` : "?"})`
             : "Belum ada aktivitas"}
         </span>
         <span>{stats.total24h} event / 24 jam</span>
