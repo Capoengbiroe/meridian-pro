@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import ConfigForm from "../components/ConfigForm";
 import PositionsTable from "../components/PositionsTable";
 

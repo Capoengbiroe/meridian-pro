@@ -1,5 +1,6 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from "next/server";
-import prisma from "../../lib/db.js";
+import { prisma } from "../../../lib/db.js";
 
 export async function GET() {
   try {

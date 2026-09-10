@@ -1,9 +1,16 @@
-import useSWR from "swr";
+"use client";
+import { useEffect, useState } from "react";
 
 export default function ConfigForm() {
-  const { data, error, mutate } = useSWR("/api/config", (url) =>
-    fetch(url).then((res) => res.json())
-  );
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetch("/api/config")
+      .then((res) => res.json())
+      .then(setData)
+      .catch(setError);
+  }, []);
 
   if (!data) return <p className="text-gray-400">Loading configuration…</p>;
   if (error) return <p className="text-red-400">Failed to load config</p>;
@@ -11,10 +18,9 @@ export default function ConfigForm() {
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     const val = type === "checkbox" ? checked : Number(value) || value;
-    mutate({ ...data, [name]: val }, false);
+    setData({ ...data, [name]: val });
   };
-
-  const handleSubmit = async (e) => {
+const handleSubmit = async (e) => {
     e.preventDefault();
     const payload = { ...data };
     const res = await fetch("/api/config", {
@@ -22,7 +28,12 @@ export default function ConfigForm() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (res.ok) mutate();
+    if (res.ok) {
+      fetch("/api/config")
+        .then((res) => res.json())
+        .then(setData)
+        .catch(setError);
+    }
   };
 
   return (

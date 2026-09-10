@@ -10,3 +10,4 @@ tsconfig.tsbuildinfo
 user-config.json
 lessons.json
 pool-memory.json
+.vercel

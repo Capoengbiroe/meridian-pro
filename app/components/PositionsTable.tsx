@@ -1,11 +1,35 @@
-import useSWR from "swr";
-
-const fetcher = (url) => fetch(url).then((res) => res.json());
+"use client";
+import { useEffect, useState } from "react";
 
 export default function PositionsTable() {
-  const { data, error, isLoading } = useSWR("/api/positions", fetcher, {
-    refreshInterval: 10_000,
-  });
+  const [data, setData] = useState([]);
+  const [error, setError] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () =>
+      fetch("/api/positions")
+        .then((res) => res.json())
+        .then((json) => {
+          if (!cancelled) {
+            setData(json);
+            setIsLoading(false);
+          }
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            setError(err);
+            setIsLoading(false);
+          }
+        });
+    load();
+    const id = setInterval(load, 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
 
   if (isLoading) return <p className="text-gray-400">Loading positions...</p>;
   if (error) return <p className="text-red-400">Failed to load positions</p>;
