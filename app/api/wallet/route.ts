@@ -15,6 +15,7 @@ export async function GET() {
 
     return NextResponse.json({ balance: balance / 1e9 });
   } catch (err) {
+    console.error("Wallet API error:", err);
     return NextResponse.json({ error: "Failed to fetch balance" }, { status: 500 });
   }
 }
