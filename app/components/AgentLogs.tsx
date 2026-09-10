@@ -3,61 +3,36 @@ import { useEffect, useState } from "react";
 
 export default function AgentLogs() {
   const [logs, setLogs] = useState([]);
-  const [error, setError] = useState(null);
 
   useEffect(() => {
-    let cancelled = false;
-    const load = () =>
-      fetch("/api/logs")
+    const fetchLogs = () =>
+      fetch("/api/logs?limit=20")
         .then((res) => res.json())
-        .then((json) => {
-          if (!cancelled) setLogs(Array.isArray(json) ? json : []);
-        })
-        .catch((err) => {
-          if (!cancelled) setError(err);
-        });
-    load();
-    const id = setInterval(load, 10000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
+        .then((json) => Array.isArray(json) && setLogs(json));
+    
+    fetchLogs();
+    const id = setInterval(fetchLogs, 5000); // Polling lebih cepat
+    return () => clearInterval(id);
   }, []);
 
-  if (error)
-    return (
-      <div className="rounded-lg border border-gray-800 bg-gray-900 p-4">
-        <p className="text-red-400 text-sm">Failed to load logs.</p>
-      </div>
-    );
-
   return (
-    <div className="rounded-lg border border-gray-800 bg-gray-900 p-4 max-h-96 overflow-y-auto">
-      {logs.length === 0 ? (
-        <p className="text-gray-400 text-sm">No agent logs yet.</p>
-      ) : (
-        <ul className="space-y-2">
-          {logs.map((log) => (
-            <li key={log.id} className="text-sm flex items-start gap-2">
-              <span
-                className={`shrink-0 rounded px-1.5 text-xs font-semibold ${
-                  log.level === "error"
-                    ? "bg-red-900/50 text-red-300"
-                    : log.level === "warn"
-                    ? "bg-yellow-900/50 text-yellow-300"
-                    : "bg-blue-900/50 text-blue-300"
-                }`}
-              >
-                {log.level}
+    <div className="bg-black border border-gray-800 rounded-lg p-4 font-mono text-xs overflow-hidden">
+      <h3 className="text-gray-500 mb-2 uppercase tracking-widest text-[10px]">Live System Stream</h3>
+      <div className="h-64 overflow-y-auto space-y-1 scrollbar-thin scrollbar-thumb-gray-800">
+        {logs.length === 0 ? (
+          <p className="text-gray-600">Waiting for agent activity...</p>
+        ) : (
+          logs.map((log) => (
+            <div key={log.id} className="flex gap-2">
+              <span className="text-gray-600">[{new Date(log.createdAt).toLocaleTimeString()}]</span>
+              <span className={`${log.level === 'error' ? 'text-red-500' : log.level === 'warn' ? 'text-yellow-500' : 'text-blue-400'}`}>
+                {log.agentType.toUpperCase()}
               </span>
-              <span className="text-gray-400 shrink-0 text-xs">
-                {new Date(log.createdAt).toLocaleTimeString()}
-              </span>
-              <span className="text-gray-200">{log.message}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+              <span className="text-gray-300">{log.message}</span>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }
