@@ -19,9 +19,12 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
+    "@meteora-ag/dlmm": "^1.9.14",
     "@prisma/client": "^5.16.0",
     "@solana/web3.js": "^1.99.0",
     "@types/uuid": "^10.0.0",
+    "bs58": "^6.0.0",
     "date-fns": "^4.4.0",
     "dotenv": "^16.4.5",
     "next": "14.2.5",

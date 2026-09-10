@@ -1,5 +1,4 @@
-import prisma from "../lib/db.js";
-import { logInfo, logWarn, logError } from "../lib/logger.js";
+import { deployIntoPool } from "./deployer.js";
 
 /**
  * Hunter Alpha — Pool Screening Agent
@@ -135,22 +134,4 @@ async function fetchPoolCandidates(screening) {
   }
 }
 
-async function deployIntoPool(userId, pool, trading, risk) {
-  // Placeholder for actual Meteora DLMM SDK deployment
-  // In production, this uses @meteora-ag/dlmm to create a position
-  try {
-    logInfo(userId, "hunter", `Deploying into pool ${pool.name}...`, {
-      amountSol: trading.deployAmountSol,
-      poolAddress: pool.address,
-    });
-
-    // TODO: Implement actual @meteora-ag/dlmm SDK call:
-    // const dlmm = await DLMM.create(connection, new PublicKey(pool.address));
-    // const tx = await dlmm.addLiquidityByWeight(...);
-
-    return { success: true, txHash: "dry-run-tx-hash" };
-  } catch (err) {
-    logError(userId, "hunter", `Deploy failed: ${err.message}`);
-    return { success: false, error: err.message };
-  }
-}
+/* deployIntoPool dipindahkan ke deployer.js */
