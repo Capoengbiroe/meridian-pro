@@ -55,14 +55,13 @@ export async function deployIntoPool(userId, pool, trading, risk) {
 
     // Open position (add liquidity)
     logInfo(userId, "hunter", "Membuka posisi liquidity...");
-    const activeBin = poolInstance.activeBin;
     const positionTx = await poolInstance.openPosition({
       user: keypair.publicKey,
       lbPair: poolInstance.pubkey,
       totalXAmount: new BN(0),
       totalYAmount: new BN(0),
-      minBinId: activeBin - 10,
-      maxBinId: activeBin + 10,
+      minBinId: poolInstance.activeBin - 10,
+      maxBinId: poolInstance.activeBin + 10,
       strategyType: "Spot",
     });
 
