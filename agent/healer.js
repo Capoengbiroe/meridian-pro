@@ -21,6 +21,12 @@ export async function runManagementCycle(userId, config) {
       where: { userId, status: "OPEN" },
     });
 
+    // DRY RUN: jangan kelola/ubah posisi simulasi
+    if (trading.dryRun) {
+      logInfo(userId, "healer", "Dry run mode: posisi dibiarkan tanpa pengelolaan");
+      return { status: "dry_run_skip", count: positions.length };
+    }
+
     if (positions.length === 0) {
       logInfo(userId, "healer", "No open positions — skipping management");
       return { status: "no_positions", count: 0 };
