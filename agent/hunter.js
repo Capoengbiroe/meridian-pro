@@ -6,99 +6,90 @@ const SOL_MINT = "So11111111111111111111111111111111111111112";
 
 export async function runScreeningCycle(userId, config) {
   const { screening, trading, risk } = config;
-  logInfo(userId, "hunter", "Screening cycle mulai (GeckoTerminal + on-chain)...");
+  logInfo(userId, "hunter", "Screening: GeckoTerminal + on-chain SOL filter...");
 
   try {
-    // 1. Ambil pool Meteora dari GeckoTerminal (API live)
-    const pools = await fetchMeteoraPools();
-    if (!pools || pools.length === 0) {
-      logWarn(userId, "hunter", "Tidak ada pool ditemukan dari GeckoTerminal");
+    const geckoPools = await fetchGeckoPools();
+    if (!geckoPools.length) {
+      logWarn(userId, "hunter", "Tidak ada pool dari GeckoTerminal");
+      return { status: "no_candidates" };
+    }
+    logInfo(userId, "hunter", `${geckoPools.length} pool dari GeckoTerminal`);
+
+    const { Connection, PublicKey } = await import("@solana/web3.js");
+    const dlmmLib = await import("@meteora-ag/dlmm");
+    const DLMM = dlmmLib.default || dlmmLib.DLMM;
+    const connection = new Connection(
+      process.env.HELIUS_API_KEY
+        ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
+        : "https://api.mainnet-beta.solana.com"
+    );
+
+    const solPools = [];
+    const results = await Promise.allSettled(
+      geckoPools.slice(0, 15).map(async (p) => {
+        const inst = await DLMM.create(connection, new PublicKey(p.address));
+        const tx = inst.tokenX.publicKey.toBase58();
+        const ty = inst.tokenY.publicKey.toBase58();
+        if (tx === SOL_MINT || ty === SOL_MINT) {
+          return { address: p.address, tokenX: tx, tokenY: ty, reserve: p.reserveInUsd };
+        }
+        return null;
+      })
+    );
+
+    for (const r of results) {
+      if (r.status === "fulfilled" && r.value) solPools.push(r.value);
+    }
+
+    if (!solPools.length) {
+      logWarn(userId, "hunter", "Tidak ada pool SOL viable");
       return { status: "no_candidates" };
     }
 
-    logInfo(userId, "hunter", `Ditemukan ${pools.length} pool Meteora`);
+    solPools.sort((a, b) => b.reserve - a.reserve);
+    const best = solPools[0];
+    logInfo(userId, "hunter", `Terpilih: ${best.address} (TVL $${best.reserve.toFixed(0)})`);
 
-    // 2. Filter: prioritas SOL pairs + liquidity minimum
-    const minReserve = screening?.minTvl || 1000; // USD
-    const viable = pools
-      .filter((p) =>
-        (p.baseToken === SOL_MINT || p.quoteToken === SOL_MINT) &&
-        p.reserveInUsd >= minReserve
-      )
-      .sort((a, b) => b.reserveInUsd - a.reserveInUsd);
-
-    logInfo(userId, "hunter", `Pool viable (SOL + TVL>=${minReserve}): ${viable.length}`);
-
-    if (viable.length === 0) {
-      logWarn(userId, "hunter", "Tidak ada pool SOL viable dengan TVL cukup");
-      return { status: "no_candidates" };
-    }
-
-    const bestPool = viable[0];
-    logInfo(userId, "hunter", `Kandidat terpilih: ${bestPool.address} (TVL: $${bestPool.reserveInUsd})`);
-
-    // 3. Eksekusi / Dry Run
     if (!trading.dryRun) {
-      logInfo(userId, "hunter", `LIVE MODE: Membuka posisi di ${bestPool.address}...`);
-      const result = await deployIntoPool(userId, bestPool, trading, risk);
+      logInfo(userId, "hunter", `LIVE: Buka posisi ${best.address}...`);
+      const result = await deployIntoPool(userId, best, trading, risk);
       if (result.success) {
         await prisma.position.create({
-          data: {
-            userId,
-            poolAddress: bestPool.address,
-            poolName: `${bestPool.baseSymbol}/${bestPool.quoteSymbol}`,
-            strategy: "hunter-auto",
-            deployAmount: trading.deployAmountSol,
-            status: "OPEN"
-          }
+          data: { userId, poolAddress: best.address, poolName: "SOL/XYZ", strategy: "hunter-auto", deployAmount: trading.deployAmountSol, status: "OPEN" }
         });
-        logInfo(userId, "hunter", `LIVE: Posisi dibuka di ${bestPool.address}`);
+        logInfo(userId, "hunter", `LIVE: Posisi dibuka ${best.address}`);
       } else {
-        logError(userId, "hunter", `Gagal eksekusi: ${result.error}`);
+        logError(userId, "hunter", `Gagal: ${result.error}`);
       }
     } else {
-      logInfo(userId, "hunter", `[DRY RUN] Kandidat: ${bestPool.address} (${bestPool.baseSymbol}/${bestPool.quoteSymbol})`);
+      logInfo(userId, "hunter", `[DRY RUN] Kandidat: ${best.address}`);
     }
 
-    return { status: "completed", pool: bestPool.address };
+    return { status: "completed", pool: best.address };
   } catch (err) {
-    logError(userId, "hunter", `Error screening: ${err.message}`);
+    logError(userId, "hunter", `Error: ${err.message}`);
     return { status: "error", message: err.message };
   }
 }
 
-async function fetchMeteoraPools() {
+async function fetchGeckoPools() {
   try {
-    const responses = await Promise.all([1, 2, 3].map((page) =>
-      fetch(
-        `https://api.geckoterminal.com/api/v2/networks/solana/dexes/meteora/pools?page=${page}&sort=h24_volume_usd_desc`,
-        { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(15000) }
-      )
-    ));
-
-    const all = [];
-    for (const res of responses) {
-      if (!res.ok) continue;
-      const json = await res.json();
-      for (const item of json.data || []) {
-        const attrs = item.attributes || {};
-        const base = attrs.base_token || {};
-        const quote = attrs.quote_token || {};
-        if (!attrs.address) continue;
-        all.push({
-          address: attrs.address,
-          baseToken: base.address || "",
-          quoteToken: quote.address || "",
-          baseSymbol: base.symbol || "",
-          quoteSymbol: quote.symbol || "",
-          reserveInUsd: parseFloat(attrs.reserve_in_usd || "0"),
-          volume24h: parseFloat(attrs.h24_volume_usd || "0"),
-        });
-      }
-    }
-    return all;
-  } catch (err) {
-    logWarn("system", "hunter", `Fetch pool gagal: ${err.message}`);
+    const res = await fetch(
+      "https://api.geckoterminal.com/api/v2/networks/solana/dexes/meteora/pools?page=1&sort=h24_volume_usd_desc",
+      { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(15000) }
+    );
+    if (!res.ok) return [];
+    const json = await res.json();
+    return (json.data || [])
+      .map((item) => {
+        const a = item.attributes || {};
+        if (!a.address) return null;
+        return { address: a.address, reserveInUsd: parseFloat(a.reserve_in_usd || "0") };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.reserveInUsd - a.reserveInUsd);
+  } catch {
     return [];
   }
 }
