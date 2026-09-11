@@ -51,19 +51,42 @@ export async function runScreeningCycle(userId, config) {
     const best = solPools[0];
     logInfo(userId, "hunter", `Terpilih: ${best.address} (TVL $${best.reserve.toFixed(0)})`);
 
+    const existing = await prisma.position.findFirst({
+      where: { userId, poolAddress: best.address, status: "OPEN" },
+    });
+
     if (!trading.dryRun) {
       logInfo(userId, "hunter", `LIVE: Buka posisi ${best.address}...`);
       const result = await deployIntoPool(userId, best, trading, risk);
       if (result.success) {
-        await prisma.position.create({
-          data: { userId, poolAddress: best.address, poolName: "SOL/XYZ", strategy: "hunter-auto", deployAmount: trading.deployAmountSol, status: "OPEN" }
-        });
+        if (!existing) {
+          await prisma.position.create({
+            data: { userId, poolAddress: best.address, poolName: "SOL/XYZ", strategy: "hunter-auto", deployAmount: trading.deployAmountSol, status: "OPEN" }
+          });
+        }
         logInfo(userId, "hunter", `LIVE: Posisi dibuka ${best.address}`);
       } else {
         logError(userId, "hunter", `Gagal: ${result.error}`);
       }
     } else {
-      logInfo(userId, "hunter", `[DRY RUN] Kandidat: ${best.address}`);
+      logInfo(userId, "hunter", `[DRY RUN] Kandidat: ${best.address} (${best.tokenX.slice(0,4)}/${best.tokenY.slice(0,4)})`);
+      if (!existing) {
+        const created = await prisma.position.create({
+          data: {
+            userId,
+            poolAddress: best.address,
+            poolName: `${best.tokenX.slice(0,4)}/${best.tokenY.slice(0,4)}`,
+            strategy: "hunter-auto",
+            deployAmount: trading.deployAmountSol,
+            currentPnl: 0,
+            unclaimedFees: 0,
+            status: "OPEN"
+          }
+        });
+        logInfo(userId, "hunter", `[DRY RUN] Posisi simulasi dibuat: ${created.id}`);
+      } else {
+        logInfo(userId, "hunter", "[DRY RUN] Posisi sudah ada, skip");
+      }
     }
 
     return { status: "completed", pool: best.address };
