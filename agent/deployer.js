@@ -21,7 +21,10 @@ export async function deployIntoPool(userId, pool, trading, risk) {
 
     const privateKey = decrypt(walletData.privateKeyEnc);
     const keypair = web3.Keypair.fromSecretKey(bs58.decode(privateKey));
-    const connection = new web3.Connection(trading.rpcUrl || "https://api.mainnet-beta.solana.com");
+    const rpc = process.env.HELIUS_API_KEY
+      ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
+      : "https://api.mainnet-beta.solana.com";
+    const connection = new web3.Connection(trading.rpcUrl || rpc);
 
     // Buat DLMM instance
     const poolInstance = await DLMM.create(connection, new web3.PublicKey(pool.address));

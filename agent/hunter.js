@@ -2,94 +2,103 @@ import prisma from "../lib/db.js";
 import { logInfo, logWarn, logError } from "../lib/logger.js";
 import { deployIntoPool } from "./deployer.js";
 
+const SOL_MINT = "So11111111111111111111111111111111111111112";
+
 export async function runScreeningCycle(userId, config) {
-  const { screening, trading, risk, wallet } = config;
-  logInfo(userId, "hunter", "Screening cycle started (on-chain)...");
+  const { screening, trading, risk } = config;
+  logInfo(userId, "hunter", "Screening cycle mulai (GeckoTerminal + on-chain)...");
 
   try {
-    // Dynamic import untuk hindari error ESM (pola CloddsBot)
-    const { Connection } = await import("@solana/web3.js");
-    const dlmmLib = await import("@meteora-ag/dlmm");
-    const DLMM = dlmmLib.default || dlmmLib.DLMM;
-
-    if (!DLMM) {
-      logError(userId, "hunter", "DLMM SDK tidak tersedia");
-      return { status: "error" };
-    }
-
-    const connection = new Connection(trading.rpcUrl || "https://api.mainnet-beta.solana.com");
-
-    // 1. Ambil semua pool DLMM dari on-chain
-    logInfo(userId, "hunter", "Menanyakan pool Meteora DLMM dari on-chain...");
-    const pairs = await DLMM.getLbPairs(connection);
-
-    if (!pairs || pairs.length === 0) {
-      logWarn(userId, "hunter", "Tidak ada pool ditemukan on-chain");
+    // 1. Ambil pool Meteora dari GeckoTerminal (API live)
+    const pools = await fetchMeteoraPools();
+    if (!pools || pools.length === 0) {
+      logWarn(userId, "hunter", "Tidak ada pool ditemukan dari GeckoTerminal");
       return { status: "no_candidates" };
     }
 
-    // 2. Filter pool yang menarik (punya SOL sebagai salah satu token)
-    const minTvl = screening && screening.minTvl ? screening.minTvl : 0;
-    const viablePools = [];
+    logInfo(userId, "hunter", `Ditemukan ${pools.length} pool Meteora`);
 
-    for (const pair of pairs) {
-      const acct = pair.account || {};
-      const tokenXMint = acct.tokenXMint?.toBase58?.() || "";
-      const tokenYMint = acct.tokenYMint?.toBase58?.() || "";
+    // 2. Filter: prioritas SOL pairs + liquidity minimum
+    const minReserve = screening?.minTvl || 1000; // USD
+    const viable = pools
+      .filter((p) =>
+        (p.baseToken === SOL_MINT || p.quoteToken === SOL_MINT) &&
+        p.reserveInUsd >= minReserve
+      )
+      .sort((a, b) => b.reserveInUsd - a.reserveInUsd);
 
-      // Prioritaskan pool SOL/XYZ
-      const solMint = "So11111111111111111111111111111111111111112";
-      if (tokenXMint !== solMint && tokenYMint !== solMint) continue;
-      if (minTvl > 0) {
-        try {
-          const liquidity = acct.liquidity?.liquidity?.valueOf?.() || 0;
-          if (liquidity < minTvl * 1e6) continue;
-        } catch {}
-      }
+    logInfo(userId, "hunter", `Pool viable (SOL + TVL>=${minReserve}): ${viable.length}`);
 
-      viablePools.push({
-        address: pair.publicKey?.toBase58?.() || pair.publicKey?.toString?.() || "",
-        tokenXMint,
-        tokenYMint,
-        binStep: acct.binStep?.toNumber?.() ?? acct.binStep,
-        activeId: acct.activeId?.number?.() ?? acct.activeId,
-      });
-    }
-
-    logInfo(userId, "hunter", `Ditemukan ${viablePools.length} pool SOL viable`);
-
-    if (viablePools.length === 0) {
-      logWarn(userId, "hunter", "Tidak ada pool SOL viable");
+    if (viable.length === 0) {
+      logWarn(userId, "hunter", "Tidak ada pool SOL viable dengan TVL cukup");
       return { status: "no_candidates" };
     }
 
-    const bestPool = viablePools[0];
+    const bestPool = viable[0];
+    logInfo(userId, "hunter", `Kandidat terpilih: ${bestPool.address} (TVL: $${bestPool.reserveInUsd})`);
 
+    // 3. Eksekusi / Dry Run
     if (!trading.dryRun) {
-      logInfo(userId, "hunter", `LIVE: Membuka posisi di ${bestPool.address}...`);
+      logInfo(userId, "hunter", `LIVE MODE: Membuka posisi di ${bestPool.address}...`);
       const result = await deployIntoPool(userId, bestPool, trading, risk);
       if (result.success) {
         await prisma.position.create({
           data: {
             userId,
             poolAddress: bestPool.address,
-            poolName: `${bestPool.tokenXMint.slice(0,4)}/${bestPool.tokenYMint.slice(0,4)}`,
+            poolName: `${bestPool.baseSymbol}/${bestPool.quoteSymbol}`,
             strategy: "hunter-auto",
             deployAmount: trading.deployAmountSol,
             status: "OPEN"
           }
         });
-        logInfo(userId, "hunter", `LIVE: Posisi dibuka ${bestPool.address}`);
+        logInfo(userId, "hunter", `LIVE: Posisi dibuka di ${bestPool.address}`);
       } else {
-        logError(userId, "hunter", `Gagal: ${result.error}`);
+        logError(userId, "hunter", `Gagal eksekusi: ${result.error}`);
       }
     } else {
-      logInfo(userId, "hunter", `[DRY RUN] Kandidat: ${bestPool.address}`);
+      logInfo(userId, "hunter", `[DRY RUN] Kandidat: ${bestPool.address} (${bestPool.baseSymbol}/${bestPool.quoteSymbol})`);
     }
 
     return { status: "completed", pool: bestPool.address };
   } catch (err) {
-    logError(userId, "hunter", `Error: ${err.message}`);
+    logError(userId, "hunter", `Error screening: ${err.message}`);
     return { status: "error", message: err.message };
+  }
+}
+
+async function fetchMeteoraPools() {
+  try {
+    const responses = await Promise.all([1, 2, 3].map((page) =>
+      fetch(
+        `https://api.geckoterminal.com/api/v2/networks/solana/dexes/meteora/pools?page=${page}&sort=h24_volume_usd_desc`,
+        { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(15000) }
+      )
+    ));
+
+    const all = [];
+    for (const res of responses) {
+      if (!res.ok) continue;
+      const json = await res.json();
+      for (const item of json.data || []) {
+        const attrs = item.attributes || {};
+        const base = attrs.base_token || {};
+        const quote = attrs.quote_token || {};
+        if (!attrs.address) continue;
+        all.push({
+          address: attrs.address,
+          baseToken: base.address || "",
+          quoteToken: quote.address || "",
+          baseSymbol: base.symbol || "",
+          quoteSymbol: quote.symbol || "",
+          reserveInUsd: parseFloat(attrs.reserve_in_usd || "0"),
+          volume24h: parseFloat(attrs.h24_volume_usd || "0"),
+        });
+      }
+    }
+    return all;
+  } catch (err) {
+    logWarn("system", "hunter", `Fetch pool gagal: ${err.message}`);
+    return [];
   }
 }
