@@ -58,7 +58,9 @@ export default function DashboardOverview() {
       const res = await fetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...configData.trading, dryRun: !metrics.dryRun }),
+        body: JSON.stringify({ 
+          trading: { ...configData.trading, dryRun: !metrics.dryRun } 
+        }),
       });
       if (res.ok) await loadMetrics();
     } catch (err) {
