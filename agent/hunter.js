@@ -4,109 +4,92 @@ import { deployIntoPool } from "./deployer.js";
 
 export async function runScreeningCycle(userId, config) {
   const { screening, trading, risk, wallet } = config;
-  logInfo(userId, "hunter", "Screening cycle started...");
+  logInfo(userId, "hunter", "Screening cycle started (on-chain)...");
 
   try {
-    // 1. Ambil semua token populer dari Meteora (Top tokens by volume)
-    const tokens = await fetchTopTokens();
-    logInfo(userId, "hunter", `Memeriksa ${tokens.length} token populer...`);
+    // Dynamic import untuk hindari error ESM (pola CloddsBot)
+    const { Connection } = await import("@solana/web3.js");
+    const dlmmLib = await import("@meteora-ag/dlmm");
+    const DLMM = dlmmLib.default || dlmmLib.DLMM;
 
-    let bestPool = null;
-    let bestLiquidity = 0;
-
-    for (const token of tokens) {
-      const poolAddress = await findPoolForToken(token.mint);
-      if (!poolAddress) continue;
-
-      const poolInfo = await getPoolInfo(poolAddress);
-      if (!poolInfo || !poolInfo.liquidity) continue;
-
-      if (poolInfo.liquidity > bestLiquidity) {
-        bestLiquidity = poolInfo.liquidity;
-        bestPool = { address: poolAddress, ...poolInfo };
-      }
+    if (!DLMM) {
+      logError(userId, "hunter", "DLMM SDK tidak tersedia");
+      return { status: "error" };
     }
 
-    if (!bestPool) {
-      logWarn(userId, "hunter", "Tidak ada pool ditemukan");
+    const connection = new Connection(trading.rpcUrl || "https://api.mainnet-beta.solana.com");
+
+    // 1. Ambil semua pool DLMM dari on-chain
+    logInfo(userId, "hunter", "Menanyakan pool Meteora DLMM dari on-chain...");
+    const pairs = await DLMM.getLbPairs(connection);
+
+    if (!pairs || pairs.length === 0) {
+      logWarn(userId, "hunter", "Tidak ada pool ditemukan on-chain");
       return { status: "no_candidates" };
     }
 
-    logInfo(userId, "hunter", `Pool terpilih: ${bestPool.address} (Liquidity: ${bestLiquidity})`);
+    // 2. Filter pool yang menarik (punya SOL sebagai salah satu token)
+    const minTvl = screening && screening.minTvl ? screening.minTvl : 0;
+    const viablePools = [];
 
-    // Eksekusi / Dry Run
+    for (const pair of pairs) {
+      const acct = pair.account || {};
+      const tokenXMint = acct.tokenXMint?.toBase58?.() || "";
+      const tokenYMint = acct.tokenYMint?.toBase58?.() || "";
+
+      // Prioritaskan pool SOL/XYZ
+      const solMint = "So11111111111111111111111111111111111111112";
+      if (tokenXMint !== solMint && tokenYMint !== solMint) continue;
+      if (minTvl > 0) {
+        try {
+          const liquidity = acct.liquidity?.liquidity?.valueOf?.() || 0;
+          if (liquidity < minTvl * 1e6) continue;
+        } catch {}
+      }
+
+      viablePools.push({
+        address: pair.publicKey?.toBase58?.() || pair.publicKey?.toString?.() || "",
+        tokenXMint,
+        tokenYMint,
+        binStep: acct.binStep?.toNumber?.() ?? acct.binStep,
+        activeId: acct.activeId?.number?.() ?? acct.activeId,
+      });
+    }
+
+    logInfo(userId, "hunter", `Ditemukan ${viablePools.length} pool SOL viable`);
+
+    if (viablePools.length === 0) {
+      logWarn(userId, "hunter", "Tidak ada pool SOL viable");
+      return { status: "no_candidates" };
+    }
+
+    const bestPool = viablePools[0];
+
     if (!trading.dryRun) {
-      logInfo(userId, "hunter", "LIVE MODE: Mencoba buka posisi...");
+      logInfo(userId, "hunter", `LIVE: Membuka posisi di ${bestPool.address}...`);
       const result = await deployIntoPool(userId, bestPool, trading, risk);
       if (result.success) {
         await prisma.position.create({
           data: {
             userId,
             poolAddress: bestPool.address,
-            poolName: bestPool.name,
+            poolName: `${bestPool.tokenXMint.slice(0,4)}/${bestPool.tokenYMint.slice(0,4)}`,
             strategy: "hunter-auto",
             deployAmount: trading.deployAmountSol,
             status: "OPEN"
           }
         });
-        logInfo(userId, "hunter", `✅ LIVE: Posisi dibuka di ${bestPool.address}`);
+        logInfo(userId, "hunter", `LIVE: Posisi dibuka ${bestPool.address}`);
       } else {
-        logError(userId, "hunter", `Gagal eksekusi: ${result.error}`);
+        logError(userId, "hunter", `Gagal: ${result.error}`);
       }
     } else {
-      logInfo(userId, "hunter", `[DRY RUN] Kandidat: ${bestPool.address} (Liquidity: ${bestLiquidity})`);
+      logInfo(userId, "hunter", `[DRY RUN] Kandidat: ${bestPool.address}`);
     }
 
     return { status: "completed", pool: bestPool.address };
   } catch (err) {
-    logError(userId, "hunter", `Error sistem: ${err.message}`);
+    logError(userId, "hunter", `Error: ${err.message}`);
     return { status: "error", message: err.message };
-  }
-}
-
-async function fetchTopTokens() {
-  try {
-    // Daftar token populer yang biasanya ada di Meteora
-    return [
-      { mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTt1v", name: "USDC" },
-      { mint: "Es9vMFrzaCERmJfrFG4H2FYD4KCoNkY11McCe8BenwNY", name: "USDT" },
-      { mint: "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So", name: "mSOL" },
-      { mint: "JUPyiwrYJFskUPiHa7hkeR8VUtAeFjSYbKJZnnQ3L4V", name: "JUP" },
-      { mint: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xrnbyf4T3WpxrR", name: "BONK" },
-      { mint: "7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj", name: "stSOL" },
-      { mint: "7vfCXTUXx5WJV5JADk17DUJ4kszg7utN175e1QkP1D", name: "JITOSOL" },
-      { mint: "9n4nbM75f5Ui33ZbPYXn59EwSgE8CGzHt1s93e", name: "WIF" },
-    ];
-  } catch {
-    return [];
-  }
-}
-
-const SOL_MINT = "So11111111111111111111111111111111111111112";
-
-async function findPoolForToken(tokenMint) {
-  try {
-    // Endpoint BENAR dari CloddsBot: pair/all_by_groups?token_mints=...
-    const url = `https://dlmm-api.meteora.ag/pair/all_by_groups?token_mints=${tokenMint},So11111111111111111111111111111111111111112`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
-    if (!res.ok) return null;
-    const pools = await res.json();
-    if (!pools || pools.length === 0) return null;
-    
-    // Ambil pool dengan liquidity tertinggi
-    const sorted = pools.sort((a, b) => (b.liquidity || 0) - (a.liquidity || 0));
-    return sorted[0]?.address || null;
-  } catch {
-    return null;
-  }
-}
-
-async function getPoolInfo(poolAddress) {
-  try {
-    const res = await fetch(`https://dlmm-api.meteora.ag/pair/${poolAddress}`);
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
   }
 }
