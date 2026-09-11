@@ -68,9 +68,16 @@ export async function deployIntoPool(userId, pool, trading, risk) {
       slippage: 50,
     });
 
-    tx.partialSign(positionKeypair);
-    const signature = await web3.sendAndConfirmTransaction(connection, tx, [keypair]);
-    logInfo(userId, "hunter", `POSISI DIBUKA: ${signature}`);
+    // Tanda tangani keypair posisi (dukung Transaction & VersionedTransaction)
+    if (typeof tx.partialSign === "function") {
+      tx.partialSign(positionKeypair);
+      const signature = await web3.sendAndConfirmTransaction(connection, tx, [keypair]);
+      logInfo(userId, "hunter", `POSISI DIBUKA: ${signature}`);
+    } else {
+      tx.sign([positionKeypair, keypair]);
+      const signature = await web3.sendAndConfirmTransaction(connection, tx);
+      logInfo(userId, "hunter", `POSISI DIBUKA (v0): ${signature}`);
+    }
     return { success: true, signature, positionAddress: positionKeypair.publicKey.toBase58() };
   } catch (err) {
     logError(userId, "hunter", `Deploy error: ${err.message}`);
