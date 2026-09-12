@@ -23,55 +23,61 @@ export default function SystemActivity() {
   }, []);
 
   const max = Math.max(1, ...stats.hourly.map((h) => h.count));
-
   const formatTime = (iso) => {
     if (!iso) return "-";
     try {
-          const d = new Date(iso);
-          return d.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+      const d = new Date(iso);
+      return d.toLocaleString("id-ID", { timeZone: "Asia/Jakarta", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
     } catch { return iso; }
   };
-
   const minutesSince = stats.lastActivity
     ? Math.round((Date.now() - new Date(stats.lastActivity).getTime()) / 60000)
     : null;
 
   return (
-    <div className="bg-gray-900 rounded-xl p-6 border border-gray-800">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold">System Activity</h3>
+    <div className="rounded-2xl border border-gray-800 bg-gray-900/70 p-6 backdrop-blur">
+      <div className="flex items-center justify-between mb-5">
+        <h3 className="text-base font-semibold text-gray-200">System Activity</h3>
         <div className="flex items-center gap-2">
           {isLive ? (
             <>
-              <span className="w-2 h-2 rounded-full bg-green-400 animate-ping"></span>
-              <span className="text-sm text-green-400">ACTIVE</span>
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-green-400"></span>
+              </span>
+              <span className="text-xs font-medium text-green-400">ACTIVE</span>
             </>
           ) : (
-            <span className="text-sm text-gray-500">STANDING BY</span>
+            <span className="text-xs text-gray-500">STANDING BY</span>
           )}
         </div>
       </div>
 
-      <div className="flex items-end gap-1 h-24 mb-3">
+      <div className="flex items-end gap-1 h-28 mb-3 rounded-lg bg-gray-950/50 p-2">
         {stats.hourly.map((h) => (
-          <div key={h.hour} className="flex flex-col items-center flex-1">
-            <div
-              className={`w-full rounded-t transition-all ${h.count > 0 ? "bg-blue-500" : "bg-gray-800"}`}
-              style={{ height: `${Math.max((h.count / max) * 100, 4)}%` }}
-              title={`${h.hour}:00 — ${h.count} event`}
-            ></div>
-            <span className="text-[9px] text-gray-500 mt-1">{h.hour}</span>
+          <div key={h.hour} className="flex flex-col items-center flex-1 group" title={`${h.hour}:00 — ${h.count} event`}>
+            <div className="relative flex items-end w-full h-full">
+              <div
+                className={`w-full rounded-t transition-all duration-500 group-hover:opacity-100 ${
+                  h.count > 0
+                    ? "bg-gradient-to-t from-blue-600 to-purple-400 opacity-90"
+                    : "bg-gray-800"
+                }`}
+                style={{ height: `${Math.max((h.count / max) * 100, 4)}%` }}
+              />
+            </div>
+            <span className="text-[9px] text-gray-600 mt-1 select-none">{h.hour}</span>
           </div>
         ))}
       </div>
 
-      <div className="flex justify-between text-xs text-gray-400">
+      <div className="flex justify-between text-xs text-gray-500 mt-3">
         <span>
           {stats.lastActivity
-            ? `Terakhir: ${formatTime(stats.lastActivity)} (${minutesSince !== null ? `${minutesSince}m lalu` : "?"})`
-            : "Belum ada aktivitas"}
+            ? `Last: ${formatTime(stats.lastActivity)}${minutesSince !== null ? ` (${minutesSince}m ago)` : ""}`
+            : "No activity yet"}
         </span>
-        <span>{stats.total24h} event / 24 jam</span>
+        <span className="font-medium text-blue-300">{stats.total24h} events / 24h</span>
       </div>
     </div>
   );
