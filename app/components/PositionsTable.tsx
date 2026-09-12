@@ -81,8 +81,11 @@ export default function PositionsTable() {
                 </td>
                 <td className="px-4 py-2 text-sm text-yellow-400">{fees.toFixed(4)}</td>
                 <td className="px-4 py-2 text-sm">
-                  <span className={`rounded px-2 py-0.5 text-xs font-medium ${pos.status === "OPEN" ? "bg-blue-900/50 text-blue-300" : "bg-gray-700 text-gray-300"}`}>
-                    {pos.status}
+                  <span className={`rounded px-2 py-0.5 text-xs font-medium ${
+                    pos.status === "OPEN" ? "bg-green-900/50 text-green-300" :
+                    pos.status === "SIMULATED" ? "bg-purple-900/50 text-purple-300" :
+                    "bg-gray-700 text-gray-300"}`}>
+                    {pos.status === "SIMULATED" ? "SIM (Dry Run)" : pos.status}
                   </span>
                 </td>
               </tr>

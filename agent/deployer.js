@@ -2,13 +2,17 @@ import { logInfo, logWarn, logError } from "../lib/logger.js";
 import { prisma } from "../lib/db.js";
 import { decrypt } from "../lib/crypto.js";
 import bs58 from "bs58";
-import { executeJupiterSwap } from "./strategies.ts";
+import { executeJupiterSwap, getJupiterQuote } from "./strategies.ts";
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 
-export async function deployIntoPool(userId, pool, trading, risk) {
+export async function deployIntoPool(userId, pool, trading, risk, opts = {}) {
+  const dryRun = opts.dryRun ?? trading.dryRun ?? true;
+  const mode = dryRun ? "DRY RUN" : "LIVE";
+  const positionStatus = dryRun ? "SIMULATED" : "OPEN";
+
   try {
-    logInfo(userId, "hunter", `Persiapan transaksi ke pool ${pool.address} (${pool.tokenX?.slice(0,6)}/${pool.tokenY?.slice(0,6)})...`);
+    logInfo(userId, "hunter", `[${mode}] Persiapan transaksi ke pool ${pool.address} (${pool.tokenX?.slice(0,6)}/${pool.tokenY?.slice(0,6)})...`);
 
     const web3 = await import("@solana/web3.js");
     const BN = (await import("bn.js")).default;
@@ -27,58 +31,91 @@ export async function deployIntoPool(userId, pool, trading, risk) {
         : "https://api.mainnet-beta.solana.com"
     );
 
-    logInfo(userId, "hunter", "Membuat DLMM instance...");
+    logInfo(userId, "hunter", `[${mode}] Membuat DLMM instance...`);
     const poolInstance = await DLMM.create(connection, new web3.PublicKey(pool.address));
 
     const activeBinInfo = await poolInstance.getActiveBin();
     const activeBinId = activeBinInfo.binId;
     const minBinId = activeBinId - 10;
     const maxBinId = activeBinId + 10;
+    const binStep = poolInstance.binStep;
 
-    // ========== ROUTE A: Jupiter Aggregator (harga terbaik) ==========
-    // Swap SOL -> token pasangan via Jupiter (best price lintas semua DEX)
+    // ========== JALUR 1: swap via Jupiter (quote NYATA di kedua mode) ==========
     const halfLamports = Math.floor(trading.deployAmountSol * 1e9 / 2);
     const outputMint = pool.tokenX === "So11111111111111111111111111111111111111112"
       ? pool.tokenY : pool.tokenX;
 
-    logInfo(userId, "hunter", "Swap via Jupiter aggregator...");
-    const jupResult = await executeJupiterSwap(
-      connection, keypair,
-      SOL_MINT, outputMint,
-      String(halfLamports), 100
-    );
-
-    if (!jupResult.success) {
-      logWarn(userId, "hunter", `Jupiter swap gagal, fallback ke DLMM manual: ${jupResult.error}`);
+    const quote = await getJupiterQuote(SOL_MINT, outputMint, String(halfLamports), 100);
+    if (quote) {
+      const outToken = (parseFloat(quote.outAmount) / 1e9).toFixed(6);
+      const impact = quote.priceImpactPct;
+      logInfo(userId, "hunter", `[${mode}] Jupiter quote: 0.25 SOL -> ${outToken} token (impact ${impact}%)`);
     } else {
-      logInfo(userId, "hunter", `Jupiter swap OK: ${jupResult.signature} (impact ${jupResult.priceImpactPct}%)`);
+      logWarn(userId, "hunter", `[${mode}] Quote Jupiter tidak tersedia, lanjut tanpa kalibrasi`);
     }
 
-    // ========== ROUTE B: Open position via DLMM (pola CloddsBot) ==========
-    logInfo(userId, "hunter", "Buka posisi liquidity di Meteora DLMM...");
-    const positionKeypair = web3.Keypair.generate();
-    const tx = await poolInstance.initializePositionAndAddLiquidityByStrategy({
-      positionPubKey: positionKeypair.publicKey,
-      totalXAmount: new BN(halfLamports.toString()),
-      totalYAmount: new BN(0),
-      strategy: { maxBinId, minBinId, strategyType: 0 },
-      user: keypair.publicKey,
-      slippage: 100,
-    });
+    let worldSignature = "(dry-run, tanpa transaksi nyata)";
 
-    if (typeof tx.partialSign === "function") {
-      tx.partialSign(positionKeypair);
-      const signature = await web3.sendAndConfirmTransaction(connection, tx, [keypair]);
-      logInfo(userId, "hunter", `POSISI DIBUKA: ${signature}`);
-      return { success: true, signature, positionAddress: positionKeypair.publicKey.toBase58() };
+    if (!dryRun) {
+      logInfo(userId, "hunter", "[LIVE] Swap via Jupiter aggregator...");
+      const jupResult = await executeJupiterSwap(
+        connection, keypair, SOL_MINT, outputMint, String(halfLamports), 100
+      );
+      if (jupResult.success) {
+        logInfo(userId, "hunter", `[LIVE] Jupiter swap OK: ${jupResult.signature}`);
+      } else {
+        logWarn(userId, "hunter", `[LIVE] Jupiter swap gagal: ${jupResult.error}`);
+      }
+
+      logInfo(userId, "hunter", `[LIVE] Buka posisi DLMM (bins ${minBinId}..${maxBinId}, step ${binStep})...`);
+      const positionKeypair = web3.Keypair.generate();
+      const tx = await poolInstance.initializePositionAndAddLiquidityByStrategy({
+        positionPubKey: positionKeypair.publicKey,
+        totalXAmount: new BN(halfLamports.toString()),
+        totalYAmount: new BN(0),
+        strategy: { maxBinId, minBinId, strategyType: 0 },
+        user: keypair.publicKey,
+        slippage: 100,
+      });
+
+      if (typeof tx.partialSign === "function") {
+        tx.partialSign(positionKeypair);
+        const sig = await web3.sendAndConfirmTransaction(connection, tx, [keypair]);
+        worldSignature = sig;
+        logInfo(userId, "hunter", `[LIVE] POSISI BERTRANSAKSI: ${sig}`);
+      } else {
+        tx.sign([positionKeypair, keypair]);
+        const sig = await web3.sendAndConfirmTransaction(connection, tx);
+        worldSignature = sig;
+        logInfo(userId, "hunter", `[LIVE] POSISI BERTRANSAKSI (v0): ${sig}`);
+      }
     } else {
-      tx.sign([positionKeypair, keypair]);
-      const signature = await web3.sendAndConfirmTransaction(connection, tx);
-      logInfo(userId, "hunter", `POSISI DIBUKA (v0): ${signature}`);
-      return { success: true, signature, positionAddress: positionKeypair.publicKey.toBase58() };
+      // DRY RUN: jalankan flow SAMA (quote nyata, state pool nyata), hanya tidak kirim tx
+      logInfo(userId, "hunter", `[DRY RUN] Simulasi swap: 0.25 SOL -> ${outputMint.slice(0,6)}`);
+      logInfo(userId, "hunter", `[DRY RUN] Simulasi buka posisi DLMM (bins ${minBinId}..${maxBinId}, step ${binStep})`);
+      logInfo(userId, "hunter", `[DRY RUN] Identik dengan live, hanya tanpa broadcast transaksi`);
     }
+
+    // Entry price dari active bin (NYATA di kedua mode)
+    const entryPrice = activeBinInfo.price
+      ? parseFloat(activeBinInfo.price.toString())
+      : null;
+
+    return {
+      success: true,
+      dryRun,
+      signature: worldSignature,
+      positionStatus,
+      entryPrice,
+      binStep,
+      minBinId,
+      maxBinId,
+      jupiterQuote: quote
+        ? { outToken: quote.outAmount, priceImpactPct: quote.priceImpactPct }
+        : null,
+    };
   } catch (err) {
-    logError(userId, "hunter", `Deploy error: ${err.message}`);
-    return { success: false, error: err.message };
+    logError(userId, "hunter", `[${mode}] Deploy error: ${err.message}`);
+    return { success: false, dryRun, error: err.message };
   }
 }

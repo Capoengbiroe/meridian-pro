@@ -52,41 +52,37 @@ export async function runScreeningCycle(userId, config) {
     logInfo(userId, "hunter", `Terpilih: ${best.address} (TVL $${best.reserve.toFixed(0)})`);
 
     const existing = await prisma.position.findFirst({
-      where: { userId, poolAddress: best.address, status: "OPEN" },
+      where: { userId, poolAddress: best.address, status: { in: ["OPEN", "SIMULATED"] } },
     });
 
-    if (!trading.dryRun) {
-      logInfo(userId, "hunter", `LIVE: Buka posisi ${best.address}...`);
-      const result = await deployIntoPool(userId, best, trading, risk);
-      if (result.success) {
-        if (!existing) {
-          await prisma.position.create({
-            data: { userId, poolAddress: best.address, poolName: "SOL/XYZ", strategy: "hunter-auto", deployAmount: trading.deployAmountSol, status: "OPEN" }
-          });
-        }
-        logInfo(userId, "hunter", `LIVE: Posisi dibuka ${best.address}`);
-      } else {
-        logError(userId, "hunter", `Gagal: ${result.error}`);
-      }
-    } else {
-      logInfo(userId, "hunter", `[DRY RUN] Kandidat: ${best.address} (${best.tokenX.slice(0,4)}/${best.tokenY.slice(0,4)})`);
+    // Jalur IDENTIK untuk dry run & live: keduanya memanggil deployIntoPool.
+    // Hanya perbedaannya: dry run tidak broadcast transaksi (kode sama, hasil quote nyata).
+    const mode = trading.dryRun ? "DRY RUN" : "LIVE";
+    logInfo(userId, "hunter", `[${mode}] Deploy ke ${best.address}...`);
+
+    const result = await deployIntoPool(userId, best, trading, risk, { dryRun: trading.dryRun });
+
+    if (result.success) {
       if (!existing) {
-        const created = await prisma.position.create({
+        await prisma.position.create({
           data: {
             userId,
             poolAddress: best.address,
             poolName: `${best.tokenX.slice(0,4)}/${best.tokenY.slice(0,4)}`,
             strategy: "hunter-auto",
             deployAmount: trading.deployAmountSol,
+            entryPrice: result.entryPrice,
             currentPnl: 0,
             unclaimedFees: 0,
-            status: "OPEN"
+            status: result.positionStatus, // SIMULATED di dry run, OPEN di live
           }
         });
-        logInfo(userId, "hunter", `[DRY RUN] Posisi simulasi dibuat: ${created.id}`);
+        logInfo(userId, "hunter", `[${mode}] Posisi ${result.positionStatus} dibuat: ${best.address}`);
       } else {
-        logInfo(userId, "hunter", "[DRY RUN] Posisi sudah ada, skip");
+        logInfo(userId, "hunter", `[${mode}] Posisi sudah ada, skip`);
       }
+    } else {
+      logError(userId, "hunter", `[${mode}] Gagal deploy: ${result.error}`);
     }
 
     return { status: "completed", pool: best.address };

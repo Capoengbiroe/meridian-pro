@@ -31,7 +31,7 @@ async function enrichPoolDetail(address) {
 export async function GET() {
   try {
     const positions = await prisma.position.findMany({
-      where: { status: "OPEN" },
+      where: { status: { in: ["OPEN", "SIMULATED"] } },
       orderBy: { openedAt: "desc" },
     });
 
